@@ -1,16 +1,27 @@
+import ssl
+print(ssl.OPENSSL_VERSION)
 import random
 import time
 from datetime import datetime
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 import requests
 import threading
-from collections import deque
+import logging
+import os
+import sys
+
+
+
+# Configure logging
+log_file_path = "api_monitor.log"
+logging.basicConfig(
+    filename=log_file_path,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 # Flask app for hosting the API
 app = Flask(__name__)
-
-# In-memory log storage using deque for thread-safe, fixed-size logs
-api_logs = deque(maxlen=20)
 
 # API configurations
 APIS = [
@@ -53,78 +64,62 @@ APIS = [
     }
 ]
 
-# Helper function to get the current timestamp
-def get_timestamp():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# Helper function to log API responses
+def log_api_response(name, status_code):
+    """Log API response details."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logging.info(f"{name} - Status: {status_code} - Time: {timestamp}")
 
-# Function to log API responses
-def log_api_response(name, status_code, timestamp):
-    log_entry = {
-        "name": name,
-        "timestamp": timestamp,
-        "status_code": status_code
-    }
-    api_logs.appendleft(log_entry)
-
-# Graceful shutdown mechanism
-shutdown_event = threading.Event()
-
-# Shared lock to prevent overlap
-api_lock = threading.Lock()
-
-# Function to ping APIs without overlap
+# Thread function to ping APIs
+# Thread function to ping APIs
 def ping_apis_without_overlap():
-    while not shutdown_event.is_set():
+    while True:
         for api in APIS:
-            with api_lock:  # Ensure only one API is pinged at a time
-                try:
-                    if api["method"] == "POST":
-                        response = requests.post(api["url"], json=api.get("data", {}))
-                    else:
-                        response = requests.get(api["url"])
+            try:
+                if api["method"] == "POST":
+                    response = requests.post(api["url"], json=api.get("data", {}))
+                else:
+                    response = requests.get(api["url"])
+                log_api_response(api["name"], response.status_code)
+            except requests.exceptions.RequestException as e:
+                log_api_response(api["name"], f"Error: {str(e)}")
+            
+            # Random interval between 0 to 180 seconds before next API ping
+            random_interval = random.randint(0, 180)
+            time.sleep(random_interval)
 
-                    log_api_response(
-                        name=api["name"],
-                        status_code=response.status_code,
-                        timestamp=get_timestamp()
-                    )
-                    print(f"{api['name']} - Status: {response.status_code}, Time: {get_timestamp()}")
-                except requests.exceptions.Timeout:
-                    log_api_response(
-                        name=api["name"],
-                        status_code="Timeout",
-                        timestamp=get_timestamp()
-                    )
-                    print(f"{api['name']} - Timeout Error, Time: {get_timestamp()}")
-                except requests.exceptions.RequestException as e:
-                    log_api_response(
-                        name=api["name"],
-                        status_code=f"Error: {str(e)}",
-                        timestamp=get_timestamp()
-                    )
-                    print(f"{api['name']} - Error: {str(e)}, Time: {get_timestamp()}")
 
-                # Random interval between 0 and 3 minutes (0 to 180 seconds)
-                random_interval = random.randint(0, 180)
-                time.sleep(random_interval)
-
-# Endpoint to retrieve logs with pagination
+# Flask route to fetch logs
 @app.route("/logs", methods=["GET"])
 def get_logs():
-    """Retrieve the last 20 API logs."""
-    return jsonify(list(api_logs))  # Return logs directly as a list
+    """Retrieve the last 50 lines from the log file."""
+    try:
+        with open(log_file_path, "r") as log_file:
+            lines = log_file.readlines()[-50:]  # Fetch the last 50 lines
+        return jsonify({"logs": lines})
+    except FileNotFoundError:
+        return jsonify({"error": "Log file not found"}), 404
 
-# Endpoint to check server status and log the call
-@app.route("/keep-alive", methods=["GET"])
-def keep_alive():
-    """Check if the server is running."""
-    timestamp = get_timestamp()
-    log_api_response(name="Keep Alive", status_code=200, timestamp=timestamp)
-    return jsonify({"message": "The server is alive and running!", "timestamp": timestamp})
+# Daemonize the process
+def daemonize():
+    if os.fork() > 0:
+        sys.exit()
+
+    os.setsid()
+    if os.fork() > 0:
+        sys.exit()
+
+    # Redirect standard file descriptors to /dev/null
+    sys.stdout = open("/dev/null", "w")
+    sys.stderr = open("/dev/null", "w")
+    sys.stdin = open("/dev/null", "r")
 
 # Main logic
 if __name__ == "__main__":
-    # Start thread to ping APIs without overlapping
+    # Daemonize the process
+    daemonize()
+
+    # Start thread to ping APIs
     threading.Thread(target=ping_apis_without_overlap, daemon=True).start()
 
     # Run Flask app
