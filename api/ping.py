@@ -42,23 +42,32 @@ TASKS = [
 def ping_task(task):
     """Function to continuously ping a task based on its configuration."""
     while True:
+        start_time = time.time()  # Track response time
         try:
             print(f"[{task['name']}] Sending {task['method']} request to {task['url']}...")
+            
             if task["method"] == "POST":
                 response = requests.post(task["url"], json=task["data"])
             else:
                 response = requests.get(task["url"])
             
+            # Calculate the time it took to get the response
+            elapsed_time = time.time() - start_time
+            print(f"[{task['name']}] Response Time: {elapsed_time:.2f} seconds")
+            
             if response.status_code == 200:
                 print(f"[{task['name']}] Success! Status code: {response.status_code}")
                 if task["method"] == "GET":
-                    print(f"[{task['name']}] Response Content: {response.text[:200]}...")  # Show first 200 characters
+                    print(f"[{task['name']}] Response Content (first 200 chars): {response.text[:200]}...")
                 else:
                     print(f"[{task['name']}] Response JSON: {response.json()}")
             else:
-                print(f"[{task['name']}] Failed! Status code: {response.status_code}, Response: {response.text}")
+                print(f"[{task['name']}] Failed! Status code: {response.status_code}, Response: {response.text[:200]}")
+                
         except Exception as e:
             print(f"[{task['name']}] Error: {e}")
+        
+        # Wait for the next interval
         time.sleep(task["interval"])
 
 def main():
