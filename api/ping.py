@@ -1,6 +1,10 @@
 import requests
 import time
 import threading
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 # URLs and payloads for different tasks
 TASKS = [
@@ -44,28 +48,30 @@ def ping_task(task):
     while True:
         start_time = time.time()  # Track response time
         try:
-            print(f"[{task['name']}] Sending {task['method']} request to {task['url']}...")
-            
+            logging.info(f"[{task['name']}] Sending {task['method']} request to {task['url']}...")
+
             if task["method"] == "POST":
-                response = requests.post(task["url"], json=task["data"])
+                response = requests.post(task["url"], json=task["data"], timeout=10)
             else:
-                response = requests.get(task["url"])
-            
+                response = requests.get(task["url"], timeout=10)
+
             # Calculate the time it took to get the response
             elapsed_time = time.time() - start_time
-            print(f"[{task['name']}] Response Time: {elapsed_time:.2f} seconds")
-            
+            logging.info(f"[{task['name']}] Response Time: {elapsed_time:.2f} seconds")
+
             if response.status_code == 200:
-                print(f"[{task['name']}] Success! Status code: {response.status_code}")
+                logging.info(f"[{task['name']}] Success! Status code: {response.status_code}")
                 if task["method"] == "GET":
-                    print(f"[{task['name']}] Response Content (first 200 chars): {response.text[:200]}...")
+                    logging.info(f"[{task['name']}] Response Content (first 200 chars): {response.text[:200]}...")
                 else:
-                    print(f"[{task['name']}] Response JSON: {response.json()}")
+                    logging.info(f"[{task['name']}] Response JSON: {response.json()}")
             else:
-                print(f"[{task['name']}] Failed! Status code: {response.status_code}, Response: {response.text[:200]}")
+                logging.warning(f"[{task['name']}] Failed! Status code: {response.status_code}, Response: {response.text[:200]}")
                 
-        except Exception as e:
-            print(f"[{task['name']}] Error: {e}")
+        except requests.exceptions.Timeout:
+            logging.error(f"[{task['name']}] Timeout error occurred.")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[{task['name']}] General error occurred: {e}")
         
         # Wait for the next interval
         time.sleep(task["interval"])
@@ -79,12 +85,12 @@ def main():
         thread.start()
 
     # Keep the main thread running to allow daemon threads to operate
-    print("All tasks are running in daemon mode. Press Ctrl+C to exit.")
+    logging.info("All tasks are running in daemon mode. Press Ctrl+C to exit.")
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nExiting...")
+        logging.info("\nExiting...")
 
 if __name__ == "__main__":
     main()
